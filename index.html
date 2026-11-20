@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0a0e1a" />
+<meta name="color-scheme" content="dark" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>GGUFEngine</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #080b14;
+    --ink: #eaf0fb;
+    --ink-2: #9fb0cc;
+    --ink-3: #647591;
+    --accent: #7cc4ff;
+    --accent-2: #7ef0c8;
+    --danger: #ff9aa8;
+    --glass: rgba(255,255,255,.065);
+    --glass-strong: rgba(255,255,255,.11);
+    --stroke: rgba(255,255,255,.14);
+    --stroke-soft: rgba(255,255,255,.07);
+    --blur: blur(28px) saturate(160%);
+    --r-lg: 26px;
+    --r-md: 18px;
+    --r-sm: 12px;
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --font: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: var(--font);
+    color: var(--ink);
+    background: var(--bg);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Sfondo: due aloni sfocati che derivano lentamente */
+  .aurora { position: fixed; inset: 0; overflow: hidden; z-index: 0; pointer-events: none; }
+  .aurora i {
+    position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%;
+    filter: blur(90px); opacity: .5;
+  }
+  .aurora i:nth-child(1) { background: #2f6bff; top: -25vmax; left: -15vmax; animation: drift1 38s ease-in-out infinite alternate; }
+  .aurora i:nth-child(2) { background: #14b88a; bottom: -30vmax; right: -20vmax; opacity: .38; animation: drift2 46s ease-in-out infinite alternate; }
+  @keyframes drift1 { to { transform: translate(14vmax, 10vmax) scale(1.1); } }
+  @keyframes drift2 { to { transform: translate(-12vmax, -8vmax) scale(1.15); } }
+
+  .app {
+    position: relative; z-index: 1;
+    height: 100dvh;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    padding: calc(var(--sat) + 12px) 12px calc(var(--sab) + 12px);
+    max-width: 1180px; margin: 0 auto;
+  }
+  @media (min-width: 900px) {
+    .app { grid-template-columns: minmax(0, 1fr) 330px; padding: 20px; gap: 18px; }
+  }
+
+  .glass {
+    background: var(--glass);
+    border: 1px solid var(--stroke);
+    border-radius: var(--r-lg);
+    -webkit-backdrop-filter: var(--blur);
+    backdrop-filter: var(--blur);
+    box-shadow: 0 1px 0 rgba(255,255,255,.1) inset, 0 20px 50px -20px rgba(0,0,0,.6);
+  }
+
+  /* Colonna chat */
+  .chat { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .top {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 14px 14px 20px;
+    border-bottom: 1px solid var(--stroke-soft);
+  }
+  .logo {
+    width: 34px; height: 34px; border-radius: 11px; flex: none;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: grid; place-items: center; color: #06121f; font-weight: 800; font-size: 15px;
+  }
+  .title { flex: 1; min-width: 0; }
+  .title b { display: block; font-size: 1.02rem; letter-spacing: .01em; }
+  .state { display: flex; align-items: center; gap: 7px; font-size: .78rem; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); flex: none; }
+  .state.ready .dot { background: var(--accent-2); box-shadow: 0 0 10px var(--accent-2); }
+  .state.busy .dot { background: var(--accent); animation: pulse 1.1s ease-in-out infinite; }
+  .state.error .dot { background: var(--danger); }
+  .state.error { color: var(--danger); }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  .icon-btn {
+    width: 40px; height: 40px; flex: none; border-radius: 13px; border: 1px solid var(--stroke-soft);
+    background: var(--glass); color: var(--ink-2); display: grid; place-items: center; cursor: pointer;
+    transition: background .15s, color .15s, transform .15s;
+  }
+  .icon-btn:hover { background: var(--glass-strong); color: var(--ink); }
+  .icon-btn:active { transform: scale(.94); }
+  .icon-btn svg, .send svg, .copy svg { width: 19px; height: 19px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  #settingsBtn { display: grid; }
+  @media (min-width: 900px) { #settingsBtn { display: none; } }
+
+  button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+
+  /* Messaggi */
+  .feed {
+    flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    padding: 20px 16px; display: flex; flex-direction: column; gap: 16px;
+    scroll-behavior: smooth;
+  }
+  .feed::-webkit-scrollbar { width: 8px; }
+  .feed::-webkit-scrollbar-thumb { background: var(--stroke); border-radius: 8px; }
+
+  .msg { display: flex; flex-direction: column; max-width: min(640px, 88%); }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.bot { align-self: flex-start; align-items: flex-start; }
+  .bubble {
+    padding: 12px 16px; border-radius: 20px; line-height: 1.55; font-size: .98rem;
+    white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
+  }
+  .user .bubble {
+    background: linear-gradient(135deg, rgba(124,196,255,.34), rgba(126,240,200,.22));
+    border: 1px solid rgba(124,196,255,.38);
+    border-bottom-right-radius: 7px;
+  }
+  .bot .bubble {
+    background: var(--glass-strong); border: 1px solid var(--stroke-soft);
+    border-bottom-left-radius: 7px;
+  }
+  .bubble.err { color: var(--danger); }
+  .bubble.streaming:not(:empty)::after {
+    content: ""; display: inline-block; width: 7px; height: 1em; margin-left: 3px; vertical-align: -2px;
+    background: var(--accent); border-radius: 2px; animation: pulse 1s steps(1) infinite;
+  }
+  .bubble.streaming:empty::before { content: "Sto pensando…"; color: var(--ink-3); }
+  .meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding-left: 4px; font-size: .74rem; color: var(--ink-3); }
+  .copy { background: none; border: 0; color: var(--ink-3); cursor: pointer; padding: 3px; border-radius: 8px; display: grid; }
+  .copy:hover { color: var(--ink); }
+  .copy svg { width: 15px; height: 15px; }
+
+  /* Stato vuoto */
+  .empty {
+    margin: auto; text-align: center; max-width: 340px; padding: 10px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+  }
+  .empty .logo { width: 62px; height: 62px; border-radius: 20px; font-size: 26px; }
+  .empty h2 { margin: 4px 0 0; font-size: 1.3rem; font-weight: 650; }
+  .empty p { margin: 0; color: var(--ink-2); font-size: .92rem; line-height: 1.5; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .chip {
+    border: 1px solid var(--stroke); background: var(--glass); color: var(--ink-2);
+    padding: 8px 13px; border-radius: 99px; font: inherit; font-size: .83rem; cursor: pointer;
+  }
+  .chip:hover { color: var(--ink); background: var(--glass-strong); }
+
+  .btn {
+    border: 0; cursor: pointer; font: inherit; font-weight: 650; color: #06121f;
+    padding: 13px 24px; border-radius: 15px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    box-shadow: 0 10px 30px -10px rgba(124,196,255,.7);
+    transition: transform .15s, opacity .15s;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+  .btn.ghost {
+    background: var(--glass); color: var(--ink); border: 1px solid var(--stroke); box-shadow: none; padding: 11px 16px; font-weight: 550;
+  }
+  .progress { width: 100%; height: 6px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; display: none; }
+  .progress.on { display: block; }
+  .progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .2s; border-radius: inherit; }
+
+  /* Composer */
+  .composer { padding: 12px; border-top: 1px solid var(--stroke-soft); }
+  .field {
+    display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 16px;
+    background: rgba(0,0,0,.22); border: 1px solid var(--stroke); border-radius: 22px;
+    transition: border-color .15s;
+  }
+  .field:focus-within { border-color: rgba(124,196,255,.6); }
+  .field textarea {
+    flex: 1; min-width: 0; background: none; border: 0; outline: 0; resize: none; color: var(--ink);
+    font: inherit; font-size: 16px; line-height: 1.45; padding: 9px 0; max-height: 160px;
+  }
+  .field textarea::placeholder { color: var(--ink-3); }
+  .send {
+    width: 42px; height: 42px; flex: none; border: 0; border-radius: 16px; cursor: pointer;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #06121f;
+    display: grid; place-items: center; transition: transform .15s, opacity .15s;
+  }
+  .send:active { transform: scale(.92); }
+  .send:disabled { opacity: .35; cursor: not-allowed; }
+  .send.stop { background: var(--glass-strong); color: var(--ink); border: 1px solid var(--stroke); }
+  .send.stop svg { fill: currentColor; }
+
+  /* Pannello impostazioni */
+  .panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 6px; }
+  .panel-head h3 { margin: 0; font-size: 1.02rem; }
+  .panel-body { padding: 8px 20px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+  .grab { display: none; }
+  .close { display: none; }
+  label.l { display: block; font-size: .8rem; color: var(--ink-2); margin-bottom: 7px; }
+  .in {
+    width: 100%; background: rgba(0,0,0,.25); color: var(--ink); border: 1px solid var(--stroke-soft);
+    border-radius: var(--r-sm); padding: 11px 13px; font: inherit; font-size: 16px; resize: vertical;
+  }
+  .in:disabled { opacity: .5; }
+  select.in { appearance: none; -webkit-appearance: none; cursor: pointer; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: .92rem; cursor: pointer; }
+  .switch small { display: block; color: var(--ink-3); font-size: .76rem; margin-top: 2px; }
+  .switch input { appearance: none; -webkit-appearance: none; width: 46px; height: 28px; border-radius: 99px; background: rgba(255,255,255,.14); position: relative; cursor: pointer; flex: none; transition: background .2s; }
+  .switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: transform .2s; }
+  .switch input:checked { background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+  .switch input:checked::after { transform: translateX(18px); }
+  .hint { color: var(--ink-3); font-size: .76rem; line-height: 1.45; margin: 0; }
+
+  .scrim { display: none; }
+
+  @media (max-width: 899px) {
+    .panel {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; max-height: 86dvh;
+      border-radius: 28px 28px 0 0; padding-bottom: var(--sab);
+      background: rgba(18,24,40,.82);
+      transform: translateY(105%); transition: transform .32s cubic-bezier(.2,.8,.2,1);
+    }
+    .panel.open { transform: none; }
+    .grab { display: block; width: 40px; height: 4px; border-radius: 4px; background: var(--stroke); margin: 10px auto 0; }
+    .close { display: grid; }
+    .scrim { display: block; position: fixed; inset: 0; z-index: 15; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .25s; }
+    .scrim.on { opacity: 1; pointer-events: auto; }
+    .msg { max-width: 92%; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+</style>
+</head>
+<body>
+<div class="aurora" aria-hidden="true"><i></i><i></i></div>
+
+<div class="app">
+  <section class="glass chat" aria-label="Chat">
+    <header class="top">
+      <div class="logo" aria-hidden="true">G</div>
+      <div class="title">
+        <b>GGUFEngine</b>
+        <div class="state" id="state"><span class="dot"></span><span id="stateText">Modello non caricato</span></div>
+      </div>
+      <button class="icon-btn" id="resetBtn" title="Nuova chat" aria-label="Nuova chat">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button class="icon-btn" id="settingsBtn" title="Impostazioni" aria-label="Impostazioni">
+        <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+      </button>
+    </header>
+
+    <div class="feed" id="feed" role="log" aria-live="polite">
+      <div class="empty" id="empty">
+        <div class="logo" aria-hidden="true">G</div>
+        <h2>Un modello, tutto nel browser</h2>
+        <p id="emptyText">Carica il modello GGUF per chattare. Resta sul tuo dispositivo, senza server.</p>
+        <div class="progress" id="progress"><i></i></div>
+        <button class="btn" id="loadBtn">Carica modello</button>
+        <div class="chips" id="chips" hidden>
+          <button class="chip">What is a fetch?</button>
+          <button class="chip">Explain a javascript Promise to me</button>
+          <button class="chip">Write an async function</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="field">
+        <textarea id="prompt" rows="1" placeholder="Carica il modello per iniziare" disabled aria-label="Messaggio"></textarea>
+        <button class="send" id="sendBtn" disabled aria-label="Invia">
+          <svg viewBox="0 0 24 24"><path d="M12 19V6M6 11l6-6 6 6"/></svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <div class="scrim" id="scrim"></div>
+  <aside class="glass panel" id="panel" aria-label="Impostazioni">
+    <div class="grab"></div>
+    <div class="panel-head">
+      <h3>Impostazioni</h3>
+      <button class="icon-btn close" id="closeBtn" aria-label="Chiudi">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="panel-body">
+      <div>
+        <label class="l" for="backend">Backend di calcolo</label>
+        <select class="in" id="backend">
+          <option value="auto" selected>Automatico (GPU se disponibile, altrimenti CPU)</option>
+          <option value="webgpu">WebGPU (GPU)</option>
+          <option value="wasm">CPU (WASM)</option>
+        </select>
+      </div>
+      <div>
+        <label class="l" for="gpuModel">Modello GPU (WebLLM / MLC)</label>
+        <input class="in" id="gpuModel" value="LFM2.5-1.2B-Instruct-q4f32_1-MLC" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      </div>
+      <div>
+        <label class="l" for="modelUrl">URL del modello GGUF (backend CPU)</label>
+        <input class="in" id="modelUrl" value="./models/MNN-Pocket-0.3B-Instruct-Q4_1.gguf" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      </div>
+      <div>
+        <label class="l" for="systemPrompt">Istruzioni di sistema</label>
+        <textarea class="in" id="systemPrompt" rows="3">You are a helpful, concise, and precise AI assistant.</textarea>
+      </div>
+      <div class="two">
+        <div><label class="l" for="maxTokens">Max token</label><input class="in" id="maxTokens" type="number" inputmode="numeric" min="16" max="2048" value="1024" /></div>
+        <div><label class="l" for="temperature">Temperatura</label><input class="in" id="temperature" type="number" inputmode="decimal" min="0" max="2" step="0.1" value="0.7" /></div>
+      </div>
+      <label class="switch">
+        <span>Risposta in streaming<small>Mostra il testo mentre viene generato</small></span>
+        <input type="checkbox" id="streamToggle" checked />
+      </label>
+      <p class="hint" id="gpuHint">Verifica del supporto WebGPU in corso…</p>
+      <p class="hint">Modello, istruzioni e parametri si applicano al prossimo caricamento.</p>
+      <p class="hint">Gli asset in <code>vendor/</code> e il modello locale hanno la precedenza. Se il server non li espone, l'app usa automaticamente le fonti web (CDN / Hugging Face).</p>
+      <button class="btn ghost" id="unloadBtn" hidden>Scarica il modello</button>
+    </div>
+  </aside>
+</div>
+
+<script type="module">
+  import { GGUFEngine, DEFAULT_MODEL_FALLBACK_URL, WebGPUBackend, describeAdapter } from './gguf-engine.js';
+
+  const LOCAL_MODEL_URL = './models/MNN-Pocket-0.3B-Instruct-Q4_1.gguf';
+
+  const $ = (id) => document.getElementById(id);
+  const ui = {
+    feed: $('feed'), empty: $('empty'), emptyText: $('emptyText'), chips: $('chips'),
+    progress: $('progress'), bar: $('progress').firstElementChild,
+    state: $('state'), stateText: $('stateText'),
+    prompt: $('prompt'), sendBtn: $('sendBtn'), loadBtn: $('loadBtn'), unloadBtn: $('unloadBtn'), resetBtn: $('resetBtn'),
+    modelUrl: $('modelUrl'), systemPrompt: $('systemPrompt'), maxTokens: $('maxTokens'),
+    temperature: $('temperature'), streamToggle: $('streamToggle'),
+    backend: $('backend'), gpuModel: $('gpuModel'), gpuHint: $('gpuHint'),
+    panel: $('panel'), scrim: $('scrim'),
+  };
+
+  const ICON_SEND = '<svg viewBox="0 0 24 24"><path d="M12 19V6M6 11l6-6 6 6"/></svg>';
+  const ICON_STOP = '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>';
+  const ICON_COPY = '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="3"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg>';
+
+  /** @type {GGUFEngine|null} */
+  let llm = null;
+  let loaded = false;
+  let busy = false;
+  /** Etichetta del backend attivo, mostrata accanto allo stato. */
+  let backendLabel = '';
+
+  /* ---------- Stato ---------- */
+  function setStatus(text, kind = '') {
+    ui.stateText.textContent = text;
+    ui.state.className = 'state ' + kind;
+  }
+
+  /** Stato di riposo, con il backend attivo se il modello è caricato. */
+  function idleStatus(text = 'Modello pronto') {
+    setStatus(backendLabel ? `${text} · ${backendLabel}` : text, 'ready');
+  }
+
+  function refreshControls() {
+    ui.prompt.disabled = !loaded;
+    ui.prompt.placeholder = loaded ? 'Scrivi un messaggio…' : 'Carica il modello per iniziare';
+    ui.sendBtn.disabled = busy ? false : !(loaded && ui.prompt.value.trim());
+    ui.sendBtn.classList.toggle('stop', busy);
+    ui.sendBtn.innerHTML = busy ? ICON_STOP : ICON_SEND;
+    ui.sendBtn.setAttribute('aria-label', busy ? 'Interrompi' : 'Invia');
+    ui.modelUrl.disabled = loaded;
+    ui.backend.disabled = loaded;
+    ui.gpuModel.disabled = loaded;
+    ui.unloadBtn.hidden = !loaded;
+  }
+
+  /* ---------- Pannello ---------- */
+  const openPanel = (on) => {
+    ui.panel.classList.toggle('open', on);
+    ui.scrim.classList.toggle('on', on);
+  };
+  $('settingsBtn').addEventListener('click', () => openPanel(true));
+  $('closeBtn').addEventListener('click', () => openPanel(false));
+  ui.scrim.addEventListener('click', () => openPanel(false));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') openPanel(false); });
+
+  /* ---------- Messaggi ---------- */
+  const nearBottom = () => ui.feed.scrollHeight - ui.feed.scrollTop - ui.feed.clientHeight < 60;
+  const toBottom = () => { ui.feed.scrollTop = ui.feed.scrollHeight; };
+
+  function addMessage(role, text = '') {
+    ui.empty.hidden = true;
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ' + role;
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+    wrap.appendChild(bubble);
+    ui.feed.appendChild(wrap);
+    toBottom();
+    return { wrap, bubble };
+  }
+
+  function addMeta(wrap, text, copyText) {
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const span = document.createElement('span');
+    span.textContent = text;
+    meta.appendChild(span);
+    if (copyText) {
+      const b = document.createElement('button');
+      b.className = 'copy';
+      b.title = 'Copia';
+      b.setAttribute('aria-label', 'Copia risposta');
+      b.innerHTML = ICON_COPY;
+      b.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(copyText); span.textContent = 'Copiato'; }
+        catch { span.textContent = 'Copia non riuscita'; }
+        setTimeout(() => (span.textContent = text), 1400);
+      });
+      meta.appendChild(b);
+    }
+    wrap.appendChild(meta);
+  }
+
+  function clearChat() {
+    ui.feed.querySelectorAll('.msg').forEach((n) => n.remove());
+    ui.empty.hidden = false;
+  }
+
+  function showEmpty(loadedNow) {
+    ui.loadBtn.hidden = loadedNow;
+    ui.chips.hidden = !loadedNow;
+    ui.emptyText.textContent = loadedNow
+      ? 'Il modello è pronto. Scrivi un messaggio o prova un suggerimento.'
+      : 'Carica il modello GGUF per chattare. Resta sul tuo dispositivo, senza server.';
+  }
+
+  /* ---------- Motore ---------- */
+  function createEngine() {
+    const modelUrl = ui.modelUrl.value.trim();
+    const gpuModel = ui.gpuModel.value.trim();
+    return new GGUFEngine({
+      backend: ui.backend.value,
+      // Il modello GPU è un id MLC gestito da WebLLM; il GGUF serve al backend CPU.
+      webgpuModel: gpuModel || null,
+      webgpuContextSize: 4096,
+      modelUrl: modelUrl || null,
+      // Se il GGUF locale non è disponibile, prova automaticamente la fonte web.
+      modelFallbackUrl:
+        modelUrl === LOCAL_MODEL_URL ? DEFAULT_MODEL_FALLBACK_URL : undefined,
+      systemPrompt: ui.systemPrompt.value.trim(),
+      maxTokens: Number(ui.maxTokens.value) || 256,
+      temperature: Number(ui.temperature.value) || 0.7,
+      contextSize: 2048,
+    });
+  }
+
+  ui.loadBtn.addEventListener('click', async () => {
+    ui.loadBtn.disabled = true;
+    ui.progress.classList.add('on');
+    ui.bar.style.width = '0%';
+    setStatus('Caricamento runtime e modello…', 'busy');
+    openPanel(false);
+
+    await llm?.dispose();
+    llm = null;
+
+    try {
+      llm = createEngine();
+    } catch (err) {
+      setStatus(err.message || 'Configurazione non valida', 'error');
+      ui.loadBtn.disabled = false;
+      setTimeout(() => ui.progress.classList.remove('on'), 400);
+      return;
+    }
+
+    llm.on('progress', ({ loaded: l, total, percent, text }) => {
+      ui.bar.style.width = `${percent.toFixed(1)}%`;
+      if (text) {
+        setStatus(text.length > 80 ? `${text.slice(0, 80)}…` : text, 'busy');
+        return;
+      }
+      const mb = (n) => (n / 1024 / 1024).toFixed(1);
+      setStatus(`Download modello: ${mb(l)} / ${mb(total)} MB`, 'busy');
+    });
+    llm.on('backend', () => {
+      backendLabel = llm?.backendLabel || '';
+    });
+    llm.on('status', (s) => {
+      if (s === 'generating') setStatus('Generazione in corso…', 'busy');
+      else if (s === 'ready') {
+        backendLabel = llm?.backendLabel || backendLabel;
+        idleStatus();
+      } else if (s === 'error') setStatus('Errore durante il caricamento', 'error');
+    });
+    llm.on('fallback', ({ asset }) => {
+      setStatus(
+        asset === 'backend'
+          ? 'WebGPU non disponibile: uso il backend CPU (WASM)…'
+          : asset === 'runtime'
+            ? 'Asset locali non disponibili: uso il runtime web…'
+            : 'Modello locale non disponibile: uso la fonte web…',
+        'busy'
+      );
+    });
+
+    try {
+      await llm.load();
+      ui.bar.style.width = '100%';
+      loaded = true;
+      backendLabel = llm.backendLabel;
+      showEmpty(true);
+      refreshControls();
+      idleStatus();
+      ui.prompt.focus({ preventScroll: true });
+    } catch (err) {
+      setStatus(err.message || 'Impossibile caricare il modello', 'error');
+    } finally {
+      ui.loadBtn.disabled = false;
+      setTimeout(() => ui.progress.classList.remove('on'), 400);
+    }
+  });
+
+  ui.unloadBtn.addEventListener('click', async () => {
+    await llm?.dispose();
+    llm = null; loaded = false; busy = false;
+    backendLabel = '';
+    clearChat();
+    showEmpty(false);
+    setStatus('Modello non caricato');
+    refreshControls();
+    openPanel(false);
+  });
+
+  /* ---------- Generazione ---------- */
+  async function ask(text) {
+    const prompt = text.trim();
+    if (!prompt || !llm || busy) return;
+
+    busy = true;
+    ui.prompt.value = '';
+    autosize();
+    refreshControls();
+
+    addMessage('user', prompt);
+    const { wrap, bubble } = addMessage('bot');
+    bubble.classList.add('streaming');
+    let answer = '';
+
+    try {
+      if (ui.streamToggle.checked) {
+        let raf = 0;
+        const flush = () => {
+          raf = 0;
+          const stick = nearBottom();
+          bubble.textContent = answer;
+          if (stick) toBottom();
+        };
+        try {
+          for await (const delta of llm.stream(prompt)) {
+            answer += delta;
+            if (!raf) raf = requestAnimationFrame(flush);
+          }
+        } finally {
+          if (raf) cancelAnimationFrame(raf);
+          bubble.textContent = answer;
+        }
+      } else {
+        answer = await llm.send(prompt);
+        bubble.textContent = answer;
+      }
+      toBottom();
+      idleStatus();
+    } catch (err) {
+      if (!llm?.lastResult?.aborted) {
+        bubble.classList.add('err');
+        bubble.textContent = err.message || 'Errore durante la generazione';
+        setStatus('Errore durante la generazione', 'error');
+      } else {
+        idleStatus('Generazione interrotta');
+      }
+    } finally {
+      bubble.classList.remove('streaming');
+      const r = llm?.lastResult;
+      if (answer || r) {
+        let info = r?.aborted ? 'Interrotto' : '';
+        if (r?.chunks && r?.durationMs) {
+          const s = (r.durationMs / 1000).toFixed(1);
+          const tps = ((r.chunks / r.durationMs) * 1000).toFixed(1);
+          info = `${r.aborted ? 'Interrotto · ' : ''}~${r.chunks} token · ${s} s · ${tps} tok/s`;
+        }
+        if (answer) addMeta(wrap, info, answer);
+      }
+      if (!answer && !bubble.classList.contains('err')) wrap.remove();
+      busy = false;
+      refreshControls();
+    }
+  }
+
+  /* ---------- Input ---------- */
+  function autosize() {
+    ui.prompt.style.height = 'auto';
+    ui.prompt.style.height = Math.min(ui.prompt.scrollHeight, 160) + 'px';
+  }
+  ui.prompt.addEventListener('input', () => { autosize(); refreshControls(); });
+  ui.prompt.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && matchMedia('(hover: hover)').matches) {
+      e.preventDefault();
+      ask(ui.prompt.value);
+    }
+  });
+  ui.sendBtn.addEventListener('click', () => {
+    if (busy) { llm?.abort(); setStatus('Interruzione richiesta…', 'busy'); }
+    else ask(ui.prompt.value);
+  });
+  ui.chips.addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip');
+    if (chip && loaded) ask(chip.textContent);
+  });
+
+  ui.resetBtn.addEventListener('click', () => {
+    if (busy) llm?.abort();
+    llm?.resetHistory();
+    clearChat();
+    if (loaded) idleStatus('Nuova chat');
+  });
+
+  /* ---------- Rilevamento WebGPU ---------- */
+  (async () => {
+    const detected = await WebGPUBackend.detect();
+    if (!detected.supported) {
+      ui.gpuHint.textContent =
+        `WebGPU non disponibile: ${detected.reason || 'motivo sconosciuto.'} ` +
+        'Il backend CPU (WASM) resta disponibile.';
+      const option = ui.backend.querySelector('option[value="webgpu"]');
+      if (option) option.disabled = true;
+      if (ui.backend.value === 'webgpu') ui.backend.value = 'auto';
+      return;
+    }
+    ui.gpuHint.textContent = `WebGPU disponibile: ${describeAdapter(detected.adapterInfo)}.`;
+  })().catch((err) => {
+    ui.gpuHint.textContent = `Rilevamento WebGPU non riuscito: ${err.message}`;
+  });
+
+  showEmpty(false);
+  refreshControls();
+</script>
+</body>
+</html>

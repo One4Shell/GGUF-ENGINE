@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GGUF Engine · demo console (CPU / WASM)</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 24px; min-height: 100vh;
+    background: #0b0d12; color: #dfe6f3;
+    font: 15px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  h1 { font-size: 16px; margin: 0 0 6px; color: #8bd5ff; }
+  p  { margin: 0 0 18px; color: #8a97ad; }
+  code { color: #ffd479; }
+  #box {
+    border: 1px solid #1d2534; border-radius: 10px; padding: 14px;
+    background: #0f131b; max-width: 760px;
+  }
+  #log { white-space: pre-wrap; margin: 0; font-size: 13px; color: #9fb0c9; }
+  .hint { margin-top: 14px; font-size: 13px; color: #6b7a92; }
+</style>
+</head>
+<body>
+  <h1>GGUF Engine — demo CPU/WASM</h1>
+  <p>L'output va nella <strong>console del browser</strong> (F12 → Console). Apri la console prima di ricaricare.</p>
+
+  <div id="box">
+    <pre id="log">inizializzazione…</pre>
+  </div>
+
+  <p class="hint">
+    Comandi da console: <code>await demo.ask("Ciao, chi sei?")</code> ·
+    <code>await demo.stream("Conta da 1 a 10")</code> ·
+    <code>demo.info()</code> · <code>await demo.unload()</code>
+  </p>
+
+<script type="module">
+import { GGUFEngine, DEFAULT_MODEL_FALLBACK_URL } from './gguf-engine.js';
+
+/* ------------------------------------------------------------------ *
+ *  Configurazione (override via query string)
+ *    ?model=./models/x.gguf   ?prompt=...   ?tokens=128
+ *    ?verbose=1  → log di ogni token      ?autorun=0 → niente prompt iniziale
+ * ------------------------------------------------------------------ */
+const qs = new URLSearchParams(location.search);
+const LOCAL_MODEL = './models/MNN-Pocket-0.3B-Instruct-Q4_1.gguf';
+const MODEL_URL   = (qs.get('model') || LOCAL_MODEL).trim();
+const PROMPT      = qs.get('prompt') || 'Spiega in due frasi cos\'è WebAssembly.';
+const MAX_TOKENS  = Number(qs.get('tokens') || 128);
+const VERBOSE     = qs.get('verbose') === '1';
+const AUTORUN     = qs.get('autorun') !== '0';
+
+/* Piccolo mirror a schermo, così si vede che qualcosa succede
+   anche senza console aperta. La verità resta console.log. */
+const ui = document.getElementById('log');
+let screenBuf = '';
+function screen(line) {
+  screenBuf += line + '\n';
+  const lines = screenBuf.split('\n');
+  ui.textContent = lines.slice(-40).join('\n');
+}
+
+const t0 = performance.now();
+const ts = () => `[+${((performance.now() - t0) / 1000).toFixed(2)}s]`;
+
+console.log(
+  '%c GGUF Engine · demo CPU/WASM ',
+  'background:#1b3a5c;color:#8bd5ff;font-weight:bold;padding:2px 4px;border-radius:3px'
+);
+console.log('modello :', MODEL_URL);
+console.log('backend : wasm (CPU) — nessuna GPU richiesta');
+
+/* ------------------------------------------------------------------ *
+ *  Engine: backend forzato a WASM, così gira ovunque.
+ * ------------------------------------------------------------------ */
+const engine = new GGUFEngine({
+  backend: 'wasm',
+  modelUrl: MODEL_URL,
+  // Se il GGUF locale non c'è, prova il modello remoto invece di fallire.
+  modelFallbackUrl: MODEL_URL === LOCAL_MODEL ? DEFAULT_MODEL_FALLBACK_URL : undefined,
+  systemPrompt: 'Sei un assistente utile, conciso e preciso. Rispondi in italiano.',
+  contextSize: 2048,
+  maxTokens: MAX_TOKENS,
+  temperature: 0.7,
+  topK: 40,
+  topP: 0.9,
+  repeatPenalty: 1.1,
+  // threads: Math.min(8, Math.max(1, (navigator.hardwareConcurrency || 4) - 1)),
+});
+
+window.engine = engine;   // così puoi giocarci dalla console
+
+/* ------------------------------------------------------------------ *
+ *  Eventi → console
+ * ------------------------------------------------------------------ */
+let lastPct = -1;
+engine.on('progress', ({ loaded, total, percent }) => {
+  const pct = Math.floor(percent ?? (total ? (loaded / total) * 100 : 0));
+  if (pct === lastPct || pct % 5 !== 0) return;   // niente spam: ogni 5%
+  lastPct = pct;
+  const mb = (n) => (n / 1048576).toFixed(1) + ' MB';
+  const line = `${ts()} download ${String(pct).padStart(3)}%  ${mb(loaded)} / ${mb(total)}`;
+  console.log(line);
+  screen(line);
+});
+
+engine.on('status', (s) => {
+  console.log(`${ts()} stato: ${s}`);
+  screen(`stato: ${s}`);
+});
+
+engine.on('backend', ({ backend }) => {
+  console.log(`${ts()} backend attivo: ${backend}`);
+});
+
+engine.on('fallback', (info) => {
+  console.warn(`${ts()} fallback:`, info);
+});
+
+engine.on('error', (err) => {
+  console.error(`${ts()} errore engine:`, err);
+  screen('ERRORE: ' + (err?.message || err));
+});
+
+/* ------------------------------------------------------------------ *
+ *  API comoda da console
+ * ------------------------------------------------------------------ */
+const demo = {
+  engine,
+
+  info() {
+    const i = engine.getModelInfo?.() ?? {};
+    console.table?.(i);
+    console.log('backend:', engine.backend, '|', engine.backendLabel, '| loaded:', engine.isLoaded);
+    return i;
+  },
+
+  async ask(prompt, opts = {}) {
+    const res = await engine.generateDetailed(prompt, {
+      maxTokens: MAX_TOKENS, ...opts, onToken: undefined,
+    });
+    console.log(`%c▸ ${prompt}`, 'color:#8bd5ff;font-weight:bold');
+    console.log(res.text);
+    console.log(
+      `%c${res.tokensPerSecond?.toFixed(1) ?? '?'} tok/s · ` +
+      `${res.promptTokens ?? '?'} prompt tok · ${res.nPredict ?? '?'} gen tok · ` +
+      `${(res.durationMs / 1000).toFixed(2)}s · ${res.backend}`,
+      'color:#6b7a92'
+    );
+    return res.text;
+  },
+
+  async stream(prompt, opts = {}) {
+    console.log(`%c▸ ${prompt}`, 'color:#8bd5ff;font-weight:bold');
+    let buf = '';
+    let printed = 0;
+    for await (const delta of engine.stream(prompt, { maxTokens: MAX_TOKENS, ...opts })) {
+      buf += delta;
+      if (VERBOSE) console.debug('delta:', JSON.stringify(delta));
+      else if (buf.length - printed > 80) {           // righe leggibili in console
+        console.log(buf.slice(printed));
+        printed = buf.length;
+      }
+    }
+    if (printed < buf.length) console.log(buf.slice(printed));
+    return buf;
+  },
+
+  async chat(messages, opts = {}) {
+    const text = await engine.chat(messages, { maxTokens: MAX_TOKENS, ...opts });
+    console.log(text);
+    return text;
+  },
+
+  reset() { engine.resetHistory(); console.log('cronologia azzerata'); },
+
+  async unload() { await engine.dispose(); console.log('engine liberato'); },
+};
+window.demo = demo;
+
+/* ------------------------------------------------------------------ *
+ *  Boot: carica il modello, poi (opzionale) un prompt di prova.
+ * ------------------------------------------------------------------ */
+try {
+  console.log(`${ts()} carico il modello…`);
+  screen('carico il modello…');
+  await engine.load();
+  console.log(`${ts()} modello pronto in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+  demo.info();
+
+  if (AUTORUN) await demo.ask(PROMPT);
+} catch (err) {
+  console.error('Caricamento fallito:', err);
+  console.error(
+    'Suggerimenti:\n' +
+    '  • servi la cartella con `bun run serve` (header COOP/COEP per i thread WASM)\n' +
+    '  • scarica gli asset con `bun run deps`\n' +
+    '  • oppure passa ?model=<url .gguf>'
+  );
+  screen('ERRORE: ' + (err?.message || err) + '\n— vedi console');
+}
+</script>
+</body>
+</html>
